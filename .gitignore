@@ -9,3 +9,5 @@
 *.cmxa
 *.so
 _build
+*.native
+*.byte

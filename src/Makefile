@@ -8,8 +8,8 @@ all:
 lcd: lcd.c
 	gcc $(CFLAGS) -o $@ $<
 
-test: lcd
-	./lcd
+test: all
+	./lcd.native
 
 clean:
 	rm -f lcd.native lcd
