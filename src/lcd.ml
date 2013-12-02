@@ -1,3 +1,5 @@
+let array_get = Array.get
+
 open Ctypes
 open Foreign
 open Unsigned
@@ -23,6 +25,7 @@ module Pi = struct
     with End_of_file ->
       close_in f;
       !rev
+  ;;
 end
 
 (** Some constants defined by the infamous "i2c-dev.h" file. *)
@@ -51,6 +54,7 @@ module Smbus = struct
   let i2c_dev = Dl.dlopen
     ~filename:"../include/i2c-dev.so"
     ~flags:[Dl.RTLD_NOW; Dl.RTLD_GLOBAL]
+  ;;
 
   (** The functions from the library take a Unix file descriptor, that is, an
    * integer. However, OCaml manipulates Unix file descriptors as
@@ -61,23 +65,29 @@ module Smbus = struct
     let int_of_descr: Unix.file_descr -> int = Obj.magic in
     let descr_of_int: int -> Unix.file_descr = Obj.magic in
     view int ~read:descr_of_int ~write:int_of_descr
+  ;;
 
   let ioctl =
     foreign "ioctl"
       (fd_t @-> int @-> int @-> returning int)
+  ;;
 
   let read_byte = foreign "i2c_smbus_read_byte"
     ~from:i2c_dev
     (fd_t @-> returning int32_t)
+  ;;
   let write_byte = foreign "i2c_smbus_write_byte"
     ~from:i2c_dev
     (fd_t @-> uint8_t @-> returning int32_t)
+  ;;
   let write_byte_data = foreign "i2c_smbus_write_byte_data"
     ~from:i2c_dev
     (fd_t @-> uint8_t @-> uint8_t @-> returning int32_t)
+  ;;
   let write_block_data = foreign "i2c_smbus_write_block_data"
     ~from:i2c_dev
     (fd_t @-> uint8_t @-> uint8_t @-> ptr uint8_t @-> returning int32_t)
+  ;;
 
 
   (** A higher-level interface *)
@@ -90,20 +100,25 @@ module Smbus = struct
 
     if ioctl !fd I2C.slave address < 0 then
       failwith "Error performing the ioctl call"
+  ;;
 
   let check32 s r =
     if Ops32.(r < 0l) then begin
       Printf.eprintf "%s command failed: %ld\n" s r;
       failwith "exiting"
     end
+  ;;
 
   let read_byte () =
-    read_byte !fd |> check32 "read_byte"
+    read_byte !fd |> Int32.to_int
+  ;;
   let write_byte b =
     write_byte !fd (UInt8.of_int b) |> check32 "write_byte"
+  ;;
   let write_byte_data cmd value =
     write_byte_data !fd (UInt8.of_int cmd) (UInt8.of_int value)
     |> check32 "write_byte_data"
+  ;;
   let write_block_data cmd data =
     let cmd = UInt8.of_int cmd in
     let len = UInt8.of_int (List.length data) in
@@ -111,6 +126,7 @@ module Smbus = struct
     let arr = Array.of_list uint8_t data in
     let ptr = Array.start arr in
     write_block_data !fd cmd len ptr |> check32 "write_block_data"
+  ;;
 end
 
 (** A module for driving Adafruit's LCD panel over i2c. *)
@@ -192,6 +208,93 @@ module LCD = struct
     displaycontrol = 0;
   }
 
+  (* The LCD data pins (D4-D7) connect to MCP pins 12-9 (PORTB4-1), in
+   * that order.  Because this sequence is 'reversed,' a direct shift
+   * won't work.  This table remaps 4-bit data values to MCP PORTB
+   * outputs, incorporating both the reverse and shift. *)
+  let flip = [|
+    0b00000000; 0b00010000; 0b00001000; 0b00011000;
+    0b00000100; 0b00010100; 0b00001100; 0b00011100;
+    0b00000010; 0b00010010; 0b00001010; 0b00011010;
+    0b00000110; 0b00010110; 0b00001110; 0b00011110
+  |]
+
+  (* Low-level 4-bit interface for LCD output.  This doesn't actually
+   * write data, just returns a byte array of the PORTB state over time.
+   * Can concatenate the output of multiple calls (up to 8) for more
+   * efficient batch write. *)
+  let out4 bitmask value =
+    let hi = bitmask lor array_get flip (value lsr 4) in
+    let lo = bitmask lor array_get flip (value land 0x0F) in
+    [hi lor 0b00100000; hi; lo lor 0b00100000; lo]
+  ;;
+
+  (* The speed of LCD accesses is inherently limited by I2C through the
+   * port expander.  A 'well behaved program' is expected to poll the
+   * LCD to know that a prior instruction completed.  But the timing of
+   * most instructions is a known uniform 37 mS.  The enable strobe
+   * can't even be twiddled that fast through I2C, so it's a safe bet
+   * with these instructions to not waste time polling (which requires
+   * several I2C transfers for reconfiguring the port direction).
+   * The D7 pin is set as input when a potentially time-consuming
+   * instruction has been issued (e.g. screen clear), as well as on
+   * startup, and polling will then occur before more commands or data
+   * are issued. *)
+
+  let pollable x =
+    if x = lcd_cleardisplay || x = lcd_returnhome then
+      true
+    else
+      false
+  ;;
+
+  (* Write byte value to LCD *)
+  let write_byte ?(char_mode=false) value =
+
+      (* If pin D7 is in input state, poll LCD busy flag until clear. *)
+      if state.ddrb land 0b00010000 <> 0 then begin
+        let lo = (state.portb land 0b00000001) lor 0b01000000 in
+        let hi = lo lor 0b00100000 (* # E=1 (strobe) *) in
+        Smbus.write_byte_data mcp23017_gpiob lo;
+
+        while begin
+          (* Strobe high (enable) *)
+          Smbus.write_byte hi;
+          (* First nybble contains busy state *)
+          let bits = Smbus.read_byte () in
+          (* Strobe low, high, low.  Second nybble (A3) is ignored. *)
+          Smbus.write_block_data mcp23017_gpiob [lo; hi; lo];
+          (bits land 0b00000010) <> 0 (* D7=1, busy, keep running *)
+        end do () done;
+
+        state.portb <- lo;
+
+        (* Polling complete, change D7 pin to output *)
+        state.ddrb <- state.ddrb land 0b11101111;
+        Smbus.write_byte_data mcp23017_iodirb state.ddrb;
+      end;
+
+      let bitmask = state.portb land 0b00000001 in (* Mask out PORTB LCD control bits *)
+      let bitmask =
+        if char_mode then
+          bitmask lor 0b10000000 (* Set data bit if not a command *)
+        else
+          bitmask
+      in
+
+      (* Single byte *)
+      let data = out4 bitmask value in
+      Smbus.write_block_data mcp23017_gpiob data;
+      state.portb <- data;
+
+      (* If a poll-worthy instruction was issued, reconfigure D7
+       * pin as input to indicate need for polling on next call. *)
+      if (not char_mode) && (pollable value) then begin
+        state.ddrb <- state.ddrb lor 0b00010000;
+        Smbus.write_byte_data mcp23017_iodirb state.ddrb
+      end;
+  ;;
+
   (* Initialize the port expander and the lcd. *)
   let init ?(address=0x20) ?(busnum=1) () =
     Smbus.init ~address ~busnum;
@@ -246,6 +349,7 @@ module LCD = struct
     state.displayshift   <- lcd_cursormove lor lcd_moveright;
     state.displaymode    <- lcd_entryleft lor lcd_entryshiftdecrement;
     state.displaycontrol <- lcd_displayon lor lcd_cursoroff lor lcd_blinkoff;
+  ;;
 
 end
 
