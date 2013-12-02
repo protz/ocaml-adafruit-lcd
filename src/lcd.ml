@@ -57,81 +57,195 @@ module Smbus = struct
    * [Unix.file_descr]. Fortunately, [Unix.file_descr] happens to be,
    * under-the-hood, the integer we want. We break the abstraction, and expose
    * this fact. *)
-  let fd =
+  let fd_t =
     let int_of_descr: Unix.file_descr -> int = Obj.magic in
     let descr_of_int: int -> Unix.file_descr = Obj.magic in
     view int ~read:descr_of_int ~write:int_of_descr
 
+  let ioctl =
+    foreign "ioctl"
+      (fd_t @-> int @-> int @-> returning int)
+
   let read_byte = foreign "i2c_smbus_read_byte"
     ~from:i2c_dev
-    (fd @-> returning int32_t)
+    (fd_t @-> returning int32_t)
   let write_byte = foreign "i2c_smbus_write_byte"
     ~from:i2c_dev
-    (fd @-> uint8_t @-> returning int32_t)
+    (fd_t @-> uint8_t @-> returning int32_t)
   let write_byte_data = foreign "i2c_smbus_write_byte_data"
     ~from:i2c_dev
-    (fd @-> uint8_t @-> uint8_t @-> returning int32_t)
+    (fd_t @-> uint8_t @-> uint8_t @-> returning int32_t)
+  let write_block_data = foreign "i2c_smbus_write_block_data"
+    ~from:i2c_dev
+    (fd_t @-> uint8_t @-> uint8_t @-> ptr uint8_t @-> returning int32_t)
+
+
+  (** A higher-level interface *)
+
+  let fd = ref Unix.stdout
+
+  let init ~address ~busnum =
+    let dev = Printf.sprintf "/dev/i2c-%d" busnum in
+    fd := Unix.openfile dev [Unix.O_RDWR] 0;
+
+    if ioctl !fd I2C.slave address < 0 then
+      failwith "Error performing the ioctl call"
+
+  let check32 s r =
+    if Ops32.(r < 0l) then begin
+      Printf.eprintf "%s command failed: %ld\n" s r;
+      failwith "exiting"
+    end
+
+  let read_byte () =
+    read_byte !fd |> check32 "read_byte"
+  let write_byte b =
+    write_byte !fd (UInt8.of_int b) |> check32 "write_byte"
+  let write_byte_data cmd value =
+    write_byte_data !fd (UInt8.of_int cmd) (UInt8.of_int value)
+    |> check32 "write_byte_data"
+  let write_block_data cmd data =
+    let cmd = UInt8.of_int cmd in
+    let len = UInt8.of_int (List.length data) in
+    let data = List.map UInt8.of_int data in
+    let arr = Array.of_list uint8_t data in
+    let ptr = Array.start arr in
+    write_block_data !fd cmd len ptr |> check32 "write_block_data"
 end
 
 (** A module for driving Adafruit's LCD panel over i2c. *)
 module LCD = struct
-  let address = 0x20
-
   (* Port expander registers *)
-  let mcp23017_iocon_bank0    = UInt8.of_int 0x0A  (* IOCON when Bank 0 active *)
-  let mcp23017_iocon_bank1    = UInt8.of_int 0x15  (* IOCON when Bank 1 active *)
+  let mcp23017_iocon_bank0    = 0x0A  (* IOCON when Bank 0 active *)
+  let mcp23017_iocon_bank1    = 0x15  (* IOCON when Bank 1 active *)
   (* These are register addresses when in Bank 1 only: *)
-  let mcp23017_gpioa          = UInt8.of_int 0x09
-  let mcp23017_iodirb         = UInt8.of_int 0x10
-  let mcp23017_gpiob          = UInt8.of_int 0x19
+  let mcp23017_gpioa          = 0x09
+  let mcp23017_iodirb         = 0x10
+  let mcp23017_gpiob          = 0x19
 
   (* Port expander input pin definitions *)
-  let select                  = UInt8.of_int 0
-  let right                   = UInt8.of_int 1
-  let down                    = UInt8.of_int 2
-  let up                      = UInt8.of_int 3
-  let left                    = UInt8.of_int 4
+  let select                  = 0
+  let right                   = 1
+  let down                    = 2
+  let up                      = 3
+  let left                    = 4
 
   (* LED colors *)
-  let off                     = UInt8.of_int 0x00
-  let red                     = UInt8.of_int 0x01
-  let green                   = UInt8.of_int 0x02
-  let blue                    = UInt8.of_int 0x04
-  let yellow                  = UInt8.add red green
-  let teal                    = UInt8.add green blue
-  let violet                  = UInt8.add red blue
-  let white                   = UInt8.add green (UInt8.add red blue)
+  let off                     = 0x00
+  let red                     = 0x01
+  let green                   = 0x02
+  let blue                    = 0x04
+  let yellow                  = red + green
+  let teal                    = green + blue
+  let violet                  = red + blue
+  let white                   = green + red + blue
   let on                      = white
 
   (* LCD Commands *)
-  let lcd_cleardisplay        = UInt8.of_int 0x01
-  let lcd_returnhome          = UInt8.of_int 0x02
-  let lcd_entrymodeset        = UInt8.of_int 0x04
-  let lcd_displaycontrol      = UInt8.of_int 0x08
-  let lcd_cursorshift         = UInt8.of_int 0x10
-  let lcd_functionset         = UInt8.of_int 0x20
-  let lcd_setcgramaddr        = UInt8.of_int 0x40
-  let lcd_setddramaddr        = UInt8.of_int 0x80
+  let lcd_cleardisplay        = 0x01
+  let lcd_returnhome          = 0x02
+  let lcd_entrymodeset        = 0x04
+  let lcd_displaycontrol      = 0x08
+  let lcd_cursorshift         = 0x10
+  let lcd_functionset         = 0x20
+  let lcd_setcgramaddr        = 0x40
+  let lcd_setddramaddr        = 0x80
 
   (* Flags for display on/off control *)
-  let lcd_displayon           = UInt8.of_int 0x04
-  let lcd_displayoff          = UInt8.of_int 0x00
-  let lcd_cursoron            = UInt8.of_int 0x02
-  let lcd_cursoroff           = UInt8.of_int 0x00
-  let lcd_blinkon             = UInt8.of_int 0x01
-  let lcd_blinkoff            = UInt8.of_int 0x00
+  let lcd_displayon           = 0x04
+  let lcd_displayoff          = 0x00
+  let lcd_cursoron            = 0x02
+  let lcd_cursoroff           = 0x00
+  let lcd_blinkon             = 0x01
+  let lcd_blinkoff            = 0x00
 
   (* Flags for display entry mode *)
-  let lcd_entryright          = UInt8.of_int 0x00
-  let lcd_entryleft           = UInt8.of_int 0x02
-  let lcd_entryshiftincrement = UInt8.of_int 0x01
-  let lcd_entryshiftdecrement = UInt8.of_int 0x00
+  let lcd_entryright          = 0x00
+  let lcd_entryleft           = 0x02
+  let lcd_entryshiftincrement = 0x01
+  let lcd_entryshiftdecrement = 0x00
 
   (* Flags for display/cursor shift *)
-  let lcd_displaymove = UInt8.of_int 0x08
-  let lcd_cursormove  = UInt8.of_int 0x00
-  let lcd_moveright   = UInt8.of_int 0x04
-  let lcd_moveleft    = UInt8.of_int 0x00
+  let lcd_displaymove = 0x08
+  let lcd_cursormove  = 0x00
+  let lcd_moveright   = 0x04
+  let lcd_moveleft    = 0x00
+
+  (* These are all bytes, so we're lazy and store them as OCaml integers. We're
+   * caching several pieces of the port expander's state so as not to poll the
+   * i2c bus constantly. *)
+  type state = {
+    mutable porta:  int;
+    mutable portb:  int;
+    mutable ddrb:   int;
+    mutable displayshift:   int;
+    mutable displaymode:    int;
+    mutable displaycontrol: int;
+  }
+  
+  let state = {
+    porta = 0;
+    portb = 0;
+    ddrb = 0;
+    displayshift = 0;
+    displaymode = 0;
+    displaycontrol = 0;
+  }
+
+  (* Initialize the port expander and the lcd. *)
+  let init ?(address=0x20) ?(busnum=1) () =
+    Smbus.init ~address ~busnum;
+
+    (* I2C is relatively slow.  MCP output port states are cached
+     * so we don't need to constantly poll-and-change bit states. *)
+    state.porta <- 0;
+    state.portb <- 0;
+    state.ddrb  <- 0b00010000;
+
+    (* Set MCP23017 IOCON register to Bank 0 with sequential operation.
+     * If chip is already set for Bank 0, this will just write to OLATB,
+     * which won't seriously bother anything on the plate right now
+     * (blue backlight LED will come on, but that's done in the next
+     * step anyway). *)
+    Smbus.write_byte_data mcp23017_iocon_bank1 0;
+
+    (* Brute force reload ALL registers to known state.  This also
+     * sets up all the input pins, pull-ups, etc. for the Pi Plate. *)
+    Smbus.write_block_data 0
+      [ 0b00111111;    (* IODIRA    R+G LEDs=outputs, buttons=inputs *)
+        state.ddrb;    (* IODIRB    LCD D7=input, Blue LED=output *)
+        0b00111111;    (* IPOLA     Invert polarity on button inputs *)
+        0b00000000;    (* IPOLB *)
+        0b00000000;    (* GPINTENA  Disable interrupt-on-change *)
+        0b00000000;    (* GPINTENB *)
+        0b00000000;    (* DEFVALA *)
+        0b00000000;    (* DEFVALB *)
+        0b00000000;    (* INTCONA *)
+        0b00000000;    (* INTCONB *)
+        0b00000000;    (* IOCON *)
+        0b00000000;    (* IOCON *)
+        0b00111111;    (* GPPUA     Enable pull-ups on buttons *)
+        0b00000000;    (* GPPUB *)
+        0b00000000;    (* INTFA *)
+        0b00000000;    (* INTFB *)
+        0b00000000;    (* INTCAPA *)
+        0b00000000;    (* INTCAPB *)
+        state.porta;   (* GPIOA *)
+        state.portb;   (* GPIOB *)
+        state.porta;   (* OLATA     0 on all outputs; side effect of *)
+        state.portb ]; (* OLATB     turning on R+G+B backlight LEDs. *)
+
+    (* Switch to Bank 1 and disable sequential operation.
+     * From this point forward, the register addresses do NOT match
+     * the list immediately above.  Instead, use the constants defined
+     * at the start of the class.  Also, the address register will no
+     * longer increment automatically after this -- multi-byte
+     * operations must be broken down into single-byte calls. *)
+    Smbus.write_byte_data mcp23017_iocon_bank0 0b10100000;
+
+    state.displayshift   <- lcd_cursormove lor lcd_moveright;
+    state.displaymode    <- lcd_entryleft lor lcd_entryshiftdecrement;
+    state.displaycontrol <- lcd_displayon lor lcd_cursoroff lor lcd_blinkoff;
 
 end
 
@@ -139,29 +253,16 @@ end
 
 (* Sample code *)
 
-let check_32 r =
-  if Ops32.(r < 0l) then begin
-    Printf.eprintf "smbus command failed: %ld\n" r;
-    failwith "exiting"
-  end
-;;
-
-let check r =
-  if r < 0 then begin
-    Printf.eprintf "smbus command failed: %d\n" r;
-    failwith "exiting"
-  end
-;;
-
 let _ =
-  let f = Unix.openfile "/dev/i2c-1" [Unix.O_RDWR] 0 in
-  let ioctl = foreign "ioctl" (Smbus.fd @-> int @-> int @-> returning int) in
-  check (ioctl f I2C.slave LCD.address);
-  let test_yellow () =
-    let cmd1 = UInt8.of_int ((lnot (0x1 + 0x2) land 0b011) lsl 6) in
-    check_32 (Smbus.write_byte_data f LCD.mcp23017_gpioa cmd1);
-    let cmd2 = UInt8.of_int ((lnot (0x1 + 0x2) land 0b100) lsr 2) in
-    check_32 (Smbus.write_byte_data f LCD.mcp23017_gpiob cmd2);
+  let busnum = if Pi.get_revision () = 2 then 1 else 0 in
+  LCD.init ~busnum ();
+
+  let test_color c =
+    let cmd1 = ((lnot c land 0b011) lsl 6) in
+    Smbus.write_byte_data LCD.mcp23017_gpioa cmd1;
+    let cmd2 = ((lnot c land 0b100) lsr 2) in
+    Smbus.write_byte_data LCD.mcp23017_gpiob cmd2;
   in
-  test_yellow ()
+
+  test_color LCD.green
 
