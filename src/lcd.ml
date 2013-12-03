@@ -242,10 +242,7 @@ module LCD = struct
    * are issued. *)
 
   let pollable x =
-    if x = lcd_cleardisplay || x = lcd_returnhome then
-      true
-    else
-      false
+    x = lcd_cleardisplay || x = lcd_returnhome
   ;;
 
   (* Write byte value to LCD *)
@@ -285,7 +282,7 @@ module LCD = struct
       (* Single byte *)
       let data = out4 bitmask value in
       Smbus.write_block_data mcp23017_gpiob data;
-      state.portb <- data;
+      state.portb <- List.nth data (List.length data - 1);
 
       (* If a poll-worthy instruction was issued, reconfigure D7
        * pin as input to indicate need for polling on next call. *)
@@ -349,6 +346,16 @@ module LCD = struct
     state.displayshift   <- lcd_cursormove lor lcd_moveright;
     state.displaymode    <- lcd_entryleft lor lcd_entryshiftdecrement;
     state.displaycontrol <- lcd_displayon lor lcd_cursoroff lor lcd_blinkoff;
+
+    write_byte 0x33; (* Init *)
+    write_byte 0x32; (* Init *)
+    write_byte 0x28; (* 2 line 5x8 matrix *)
+    write_byte lcd_cleardisplay;
+    write_byte (lcd_cursorshift lor state.displayshift);
+    write_byte (lcd_entrymodeset lor state.displaymode);
+    write_byte (lcd_displaycontrol lor state.displaycontrol);
+    write_byte lcd_returnhome;
+
   ;;
 
 end
