@@ -245,8 +245,16 @@ module LCD = struct
     x = lcd_cleardisplay || x = lcd_returnhome
   ;;
 
+  let mk_bitmask char_mode =
+    let bitmask = state.portb land 0b00000001 in (* Mask out PORTB LCD control bits *)
+    if char_mode then
+      bitmask lor 0b10000000 (* Set data bit if not a command *)
+    else
+      bitmask
+  ;;
+
   (* Write byte value to LCD *)
-  let write_byte ?(char_mode=false) value =
+  let write_handle_busy needs_polling f =
 
       (* If pin D7 is in input state, poll LCD busy flag until clear. *)
       if state.ddrb land 0b00010000 <> 0 then begin
@@ -271,25 +279,32 @@ module LCD = struct
         Smbus.write_byte_data mcp23017_iodirb state.ddrb;
       end;
 
-      let bitmask = state.portb land 0b00000001 in (* Mask out PORTB LCD control bits *)
-      let bitmask =
-        if char_mode then
-          bitmask lor 0b10000000 (* Set data bit if not a command *)
-        else
-          bitmask
-      in
+      f ();
+
+      (* If a poll-worthy instruction was issued, reconfigure D7
+       * pin as input to indicate need for polling on next call. *)
+      if needs_polling then begin
+        state.ddrb <- state.ddrb lor 0b00010000;
+        Smbus.write_byte_data mcp23017_iodirb state.ddrb
+      end;
+  ;;
+
+  (* Write byte value to LCD *)
+  let write_byte value =
+    write_handle_busy (pollable value) (fun () ->
+      let bitmask = mk_bitmask char_mode in
 
       (* Single byte *)
       let data = out4 bitmask value in
       Smbus.write_block_data mcp23017_gpiob data;
       state.portb <- List.nth data (List.length data - 1);
+    )
+  ;;
 
-      (* If a poll-worthy instruction was issued, reconfigure D7
-       * pin as input to indicate need for polling on next call. *)
-      if (not char_mode) && (pollable value) then begin
-        state.ddrb <- state.ddrb lor 0b00010000;
-        Smbus.write_byte_data mcp23017_iodirb state.ddrb
-      end;
+  let write_string s =
+    write_hand_busy false (fun () ->
+      (* TODO *)
+    )
   ;;
 
   (* Initialize the port expander and the lcd. *)
