@@ -4,6 +4,26 @@ open Ctypes
 open Foreign
 open Unsigned
 
+(** The usual missing functions from OCaml's standard library *)
+module Lib = struct
+
+  let substring s i j =
+    String.sub s i (j - i)
+
+  let split s c =
+    let rec break s acc =
+      try begin
+        let i = String.index s c in
+        let l = String.length s in
+        let s1, s2 = substring s 0 i, substring s (i+1) l in
+        break s2 (s1 :: acc)
+      end with Not_found ->
+        s :: acc
+    in
+    List.rev (break s [])
+
+end
+
 (** Miscellaneous utility functions for the Raspberry Pi. *)
 module Pi = struct
 
@@ -198,7 +218,7 @@ module LCD = struct
     mutable displaymode:    int;
     mutable displaycontrol: int;
   }
-  
+
   let state = {
     porta = 0;
     portb = 0;
@@ -254,7 +274,7 @@ module LCD = struct
   ;;
 
   (* Write byte value to LCD *)
-  let write_handle_busy needs_polling f =
+  let write_with_polling needs_polling f =
 
       (* If pin D7 is in input state, poll LCD busy flag until clear. *)
       if state.ddrb land 0b00010000 <> 0 then begin
@@ -291,8 +311,8 @@ module LCD = struct
 
   (* Write byte value to LCD *)
   let write_byte value =
-    write_handle_busy (pollable value) (fun () ->
-      let bitmask = mk_bitmask char_mode in
+    write_with_polling (pollable value) (fun () ->
+      let bitmask = mk_bitmask false in
 
       (* Single byte *)
       let data = out4 bitmask value in
@@ -302,8 +322,28 @@ module LCD = struct
   ;;
 
   let write_string s =
-    write_hand_busy false (fun () ->
-      (* TODO *)
+    (* Yes, we're writing characters *)
+    let bitmask = mk_bitmask true in
+    (* Writing a character is a short command that doesn't require us to perform
+     * polling. *)
+    let l = String.length s in
+    let data = ref [] in
+    let flush () =
+      if List.length !data > 0 then
+        let last = List.hd !data in
+        Smbus.write_block_data mcp23017_gpiob (List.rev !data);
+        data := [];
+        state.portb <- last;
+    in
+    write_with_polling false (fun () ->
+      for i = 0 to l - 1 do begin
+        data := List.rev_append (out4 bitmask (Char.code s.[i])) !data;
+        (* Batch sending: we can send at most 32 bytes over i2c. *)
+        assert (List.length !data <= 8);
+        if List.length !data = 8 then
+          flush();
+      end done;
+      flush ();
     )
   ;;
 
@@ -373,6 +413,28 @@ module LCD = struct
 
   ;;
 
+  let clear () =
+    write_byte lcd_cleardisplay
+  ;;
+
+  let message s =
+    let lines = Lib.split s '\n' in
+    List.iteri (fun i line ->
+      if i > 2 then
+        failwith "Message too long to fit on the LCD";
+      if i = 1 then
+        write_byte 0xc0; (* set ddram address to second line *)
+      write_string line
+    ) lines
+  ;;
+
+  let backlight c =
+    let cmd1 = ((lnot c land 0b011) lsl 6) in
+    Smbus.write_byte_data mcp23017_gpioa cmd1;
+    let cmd2 = ((lnot c land 0b100) lsr 2) in
+    Smbus.write_byte_data mcp23017_gpiob cmd2;
+  ;;
+
 end
 
 (* -------------------------------------------------------------------------- *)
@@ -383,12 +445,6 @@ let _ =
   let busnum = if Pi.get_revision () = 2 then 1 else 0 in
   LCD.init ~busnum ();
 
-  let test_color c =
-    let cmd1 = ((lnot c land 0b011) lsl 6) in
-    Smbus.write_byte_data LCD.mcp23017_gpioa cmd1;
-    let cmd2 = ((lnot c land 0b100) lsr 2) in
-    Smbus.write_byte_data LCD.mcp23017_gpiob cmd2;
-  in
-
-  test_color LCD.green
+  LCD.backlight LCD.violet;
+  LCD.message "Hello\nfrom OCaml";
 
