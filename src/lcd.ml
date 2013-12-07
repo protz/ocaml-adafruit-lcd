@@ -22,6 +22,16 @@ module Lib = struct
     in
     List.rev (break s [])
 
+  let usleep t =
+    ignore (Unix.select [] [] [] t)
+
+  let print_binary b =
+    let s = String.make 8 '0' in
+    for i = 0 to 7 do
+      if b land (1 lsl i) <> 0 then
+        s.[8 - i - 1] <- '1';
+    done;
+    s
 end
 
 (** Miscellaneous utility functions for the Raspberry Pi. *)
@@ -96,6 +106,10 @@ module Smbus = struct
     ~from:i2c_dev
     (fd_t @-> returning int32_t)
   ;;
+  let read_byte_data = foreign "i2c_smbus_read_byte_data"
+    ~from:i2c_dev
+    (fd_t @-> uint8_t @-> returning int32_t)
+  ;;
   let write_byte = foreign "i2c_smbus_write_byte"
     ~from:i2c_dev
     (fd_t @-> uint8_t @-> returning int32_t)
@@ -126,18 +140,22 @@ module Smbus = struct
     if Ops32.(r < 0l) then begin
       Printf.eprintf "%s command failed: %ld\n" s r;
       failwith "exiting"
-    end
+    end;
+    Int32.to_int r
   ;;
 
   let read_byte () =
-    read_byte !fd |> Int32.to_int
+    read_byte !fd |> check32 "read_byte"
+  ;;
+  let read_byte_data addr =
+    read_byte_data !fd (UInt8.of_int addr) |> check32 "read_byte_data"
   ;;
   let write_byte b =
-    write_byte !fd (UInt8.of_int b) |> check32 "write_byte"
+    write_byte !fd (UInt8.of_int b) |> check32 "write_byte" |> ignore
   ;;
   let write_byte_data cmd value =
     write_byte_data !fd (UInt8.of_int cmd) (UInt8.of_int value)
-    |> check32 "write_byte_data"
+    |> check32 "write_byte_data" |> ignore
   ;;
   let write_block_data cmd data =
     let cmd = UInt8.of_int cmd in
@@ -145,7 +163,7 @@ module Smbus = struct
     let data = List.map UInt8.of_int data in
     let arr = Array.of_list uint8_t data in
     let ptr = Array.start arr in
-    write_block_data !fd cmd len ptr |> check32 "write_block_data"
+    write_block_data !fd cmd len ptr |> check32 "write_block_data" |> ignore
   ;;
 end
 
@@ -211,26 +229,24 @@ module LCD = struct
    * caching several pieces of the port expander's state so as not to poll the
    * i2c bus constantly. *)
   type state = {
-    mutable porta:  int;
-    mutable portb:  int;
-    mutable ddrb:   int;
+    mutable gpioa:  int;
+    mutable gpiob:  int;
     mutable displayshift:   int;
     mutable displaymode:    int;
     mutable displaycontrol: int;
   }
 
   let state = {
-    porta = 0;
-    portb = 0;
-    ddrb = 0;
+    gpioa = 0;
+    gpiob = 0;
     displayshift = 0;
     displaymode = 0;
     displaycontrol = 0;
   }
 
-  (* The LCD data pins (D4-D7) connect to MCP pins 12-9 (PORTB4-1), in
+  (* The LCD data pins (D4-D7) connect to MCP pins 12-9 (gpiob4-1), in
    * that order.  Because this sequence is 'reversed,' a direct shift
-   * won't work.  This table remaps 4-bit data values to MCP PORTB
+   * won't work.  This table remaps 4-bit data values to MCP gpiob
    * outputs, incorporating both the reverse and shift. *)
   let flip = [|
     0b00000000; 0b00010000; 0b00001000; 0b00011000;
@@ -240,7 +256,7 @@ module LCD = struct
   |]
 
   (* Low-level 4-bit interface for LCD output.  This doesn't actually
-   * write data, just returns a byte array of the PORTB state over time.
+   * write data, just returns a byte array of the gpiob state over time.
    * Can concatenate the output of multiple calls (up to 8) for more
    * efficient batch write. *)
   let out4 bitmask value =
@@ -266,19 +282,27 @@ module LCD = struct
   ;;
 
   let mk_bitmask char_mode =
-    let bitmask = state.portb land 0b00000001 in (* Mask out PORTB LCD control bits *)
+    let bitmask = state.gpiob land 0b00000001 in (* Mask out gpiob LCD control bits *)
     if char_mode then
       bitmask lor 0b10000000 (* Set data bit if not a command *)
     else
       bitmask
   ;;
 
+  let poll_next = ref true
+
+  let iodirb_read_d7 = 0b00000010
+  let iodirb_write_d7 = 0b00000000
+
   (* Write byte value to LCD *)
   let write_with_polling needs_polling f =
 
-      (* If pin D7 is in input state, poll LCD busy flag until clear. *)
-      if state.ddrb land 0b00010000 <> 0 then begin
-        let lo = (state.portb land 0b00000001) lor 0b01000000 in
+      if !poll_next then begin
+        Smbus.write_byte_data mcp23017_iodirb iodirb_read_d7;
+
+        (* The sequence for querying the busy flag is described at
+         * https://www.sparkfun.com/datasheets/LCD/HD44780.pdf on page 33. *)
+        let lo = (state.gpiob land 0b00000001) lor 0b01000000 in
         let hi = lo lor 0b00100000 (* # E=1 (strobe) *) in
         Smbus.write_byte_data mcp23017_gpiob lo;
 
@@ -292,21 +316,17 @@ module LCD = struct
           (bits land 0b00000010) <> 0 (* D7=1, busy, keep running *)
         end do () done;
 
-        state.portb <- lo;
+        state.gpiob <- lo;
 
-        (* Polling complete, change D7 pin to output *)
-        state.ddrb <- state.ddrb land 0b11101111;
-        Smbus.write_byte_data mcp23017_iodirb state.ddrb;
+        poll_next := false;
+        Smbus.write_byte_data mcp23017_iodirb iodirb_write_d7;
       end;
 
       f ();
 
       (* If a poll-worthy instruction was issued, reconfigure D7
        * pin as input to indicate need for polling on next call. *)
-      if needs_polling then begin
-        state.ddrb <- state.ddrb lor 0b00010000;
-        Smbus.write_byte_data mcp23017_iodirb state.ddrb
-      end;
+      poll_next := needs_polling;
   ;;
 
   (* Write byte value to LCD *)
@@ -317,7 +337,7 @@ module LCD = struct
       (* Single byte *)
       let data = out4 bitmask value in
       Smbus.write_block_data mcp23017_gpiob data;
-      state.portb <- List.nth data (List.length data - 1);
+      state.gpiob <- List.nth data (List.length data - 1);
     )
   ;;
 
@@ -333,7 +353,7 @@ module LCD = struct
         let last = List.hd !data in
         Smbus.write_block_data mcp23017_gpiob (List.rev !data);
         data := [];
-        state.portb <- last;
+        state.gpiob <- last;
     in
     write_with_polling false (fun () ->
       for i = 0 to l - 1 do begin
@@ -353,9 +373,8 @@ module LCD = struct
 
     (* I2C is relatively slow.  MCP output port states are cached
      * so we don't need to constantly poll-and-change bit states. *)
-    state.porta <- 0;
-    state.portb <- 0;
-    state.ddrb  <- 0b00010000;
+    state.gpioa <- 0;
+    state.gpiob <- 0;
 
     (* Set MCP23017 IOCON register to Bank 0 with sequential operation.
      * If chip is already set for Bank 0, this will just write to OLATB,
@@ -367,28 +386,28 @@ module LCD = struct
     (* Brute force reload ALL registers to known state.  This also
      * sets up all the input pins, pull-ups, etc. for the Pi Plate. *)
     Smbus.write_block_data 0
-      [ 0b00111111;    (* IODIRA    R+G LEDs=outputs, buttons=inputs *)
-        state.ddrb;    (* IODIRB    LCD D7=input, Blue LED=output *)
-        0b00111111;    (* IPOLA     Invert polarity on button inputs *)
-        0b00000000;    (* IPOLB *)
-        0b00000000;    (* GPINTENA  Disable interrupt-on-change *)
-        0b00000000;    (* GPINTENB *)
-        0b00000000;    (* DEFVALA *)
-        0b00000000;    (* DEFVALB *)
-        0b00000000;    (* INTCONA *)
-        0b00000000;    (* INTCONB *)
-        0b00000000;    (* IOCON *)
-        0b00000000;    (* IOCON *)
-        0b00111111;    (* GPPUA     Enable pull-ups on buttons *)
-        0b00000000;    (* GPPUB *)
-        0b00000000;    (* INTFA *)
-        0b00000000;    (* INTFB *)
-        0b00000000;    (* INTCAPA *)
-        0b00000000;    (* INTCAPB *)
-        state.porta;   (* GPIOA *)
-        state.portb;   (* GPIOB *)
-        state.porta;   (* OLATA     0 on all outputs; side effect of *)
-        state.portb ]; (* OLATB     turning on R+G+B backlight LEDs. *)
+      [ 0b00111111;      (* IODIRA    R+G LEDs=outputs, buttons=inputs *)
+        iodirb_write_d7; (* IODIRB    value doesn't matter, since poll_next initially set to true *)
+        0b00111111;      (* IPOLA     Invert polarity on button inputs *)
+        0b00000000;      (* IPOLB *)
+        0b00000000;      (* GPINTENA  Disable interrupt-on-change *)
+        0b00000000;      (* GPINTENB *)
+        0b00000000;      (* DEFVALA *)
+        0b00000000;      (* DEFVALB *)
+        0b00000000;      (* INTCONA *)
+        0b00000000;      (* INTCONB *)
+        0b00000000;      (* IOCON *)
+        0b00000000;      (* IOCON *)
+        0b00111111;      (* GPPUA     Enable pull-ups on buttons *)
+        0b00000000;      (* GPPUB *)
+        0b00000000;      (* INTFA *)
+        0b00000000;      (* INTFB *)
+        0b00000000;      (* INTCAPA *)
+        0b00000000;      (* INTCAPB *)
+        state.gpioa;     (* GPIOA *)
+        state.gpiob;     (* GPIOB *)
+        state.gpioa;     (* OLATA     0 on all outputs; side effect of *)
+        state.gpiob ];   (* OLATB     turning on R+G+B backlight LEDs. *)
 
     (* Switch to Bank 1 and disable sequential operation.
      * From this point forward, the register addresses do NOT match
@@ -446,5 +465,18 @@ let _ =
   LCD.init ~busnum ();
 
   LCD.backlight LCD.violet;
+  LCD.clear ();
   LCD.message "Hello\nfrom OCaml";
+  Lib.usleep 1.;
+  for i = 0 to 1000 do
+    LCD.backlight LCD.violet;
+    let f = float_of_int i /. 1000. in
+    let t = 0.01 in
+    Lib.usleep (t *. f);
+    LCD.backlight LCD.yellow;
+    Lib.usleep (t *. (1. -. f));
+    LCD.clear ();
+    LCD.write_byte LCD.lcd_returnhome;
+    LCD.message ("Dimming\n" ^ string_of_int i);
+  done
 
