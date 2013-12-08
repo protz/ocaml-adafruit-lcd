@@ -58,11 +58,6 @@ module Pi = struct
   ;;
 end
 
-(** Some constants defined by the infamous "i2c-dev.h" file. *)
-module I2C = struct
-  let slave = 0x0703
-end
-
 (** A convenience module for performing operations on 32-bit integers. *)
 module Ops32 = struct
   let ( + ) = Int32.add
@@ -80,11 +75,10 @@ end
  * functions. *)
 module Smbus = struct
 
-  (** The C shared library that contains the various i2c_smbus functions. *)
-  let i2c_dev = Dl.dlopen
-    ~filename:"../include/i2c-dev.so"
-    ~flags:[Dl.RTLD_NOW; Dl.RTLD_GLOBAL]
-  ;;
+  (** Some constants defined by the infamous "i2c-dev.h" file. *)
+  module I2C = struct
+    let slave = 0x0703
+  end
 
   (** The functions from the library take a Unix file descriptor, that is, an
    * integer. However, OCaml manipulates Unix file descriptors as
@@ -102,27 +96,6 @@ module Smbus = struct
       (fd_t @-> int @-> int @-> returning int)
   ;;
 
-  let read_byte = foreign "i2c_smbus_read_byte"
-    ~from:i2c_dev
-    (fd_t @-> returning int32_t)
-  ;;
-  let read_byte_data = foreign "i2c_smbus_read_byte_data"
-    ~from:i2c_dev
-    (fd_t @-> uint8_t @-> returning int32_t)
-  ;;
-  let write_byte = foreign "i2c_smbus_write_byte"
-    ~from:i2c_dev
-    (fd_t @-> uint8_t @-> returning int32_t)
-  ;;
-  let write_byte_data = foreign "i2c_smbus_write_byte_data"
-    ~from:i2c_dev
-    (fd_t @-> uint8_t @-> uint8_t @-> returning int32_t)
-  ;;
-  let write_block_data = foreign "i2c_smbus_write_block_data"
-    ~from:i2c_dev
-    (fd_t @-> uint8_t @-> uint8_t @-> ptr uint8_t @-> returning int32_t)
-  ;;
-
 
   (** A higher-level interface *)
 
@@ -136,35 +109,117 @@ module Smbus = struct
       failwith "Error performing the ioctl call"
   ;;
 
-  let check32 s r =
-    if Ops32.(r < 0l) then begin
-      Printf.eprintf "%s command failed: %ld\n" s r;
-      failwith "exiting"
-    end;
-    Int32.to_int r
-  ;;
+  module CInterface = struct
 
-  let read_byte () =
-    read_byte !fd |> check32 "read_byte"
-  ;;
-  let read_byte_data addr =
-    read_byte_data !fd (UInt8.of_int addr) |> check32 "read_byte_data"
-  ;;
-  let write_byte b =
-    write_byte !fd (UInt8.of_int b) |> check32 "write_byte" |> ignore
-  ;;
-  let write_byte_data cmd value =
-    write_byte_data !fd (UInt8.of_int cmd) (UInt8.of_int value)
-    |> check32 "write_byte_data" |> ignore
-  ;;
-  let write_block_data cmd data =
-    let cmd = UInt8.of_int cmd in
-    let len = UInt8.of_int (List.length data) in
-    let data = List.map UInt8.of_int data in
-    let arr = Array.of_list uint8_t data in
-    let ptr = Array.start arr in
-    write_block_data !fd cmd len ptr |> check32 "write_block_data" |> ignore
-  ;;
+    (** The C shared library that contains the various i2c_smbus functions. *)
+    let i2c_dev = Dl.dlopen
+      ~filename:"../include/i2c-dev.so"
+      ~flags:[Dl.RTLD_NOW; Dl.RTLD_GLOBAL]
+    ;;
+
+    let read_byte = foreign "i2c_smbus_read_byte"
+      ~from:i2c_dev
+      (fd_t @-> returning int32_t)
+    ;;
+    let read_byte_data = foreign "i2c_smbus_read_byte_data"
+      ~from:i2c_dev
+      (fd_t @-> uint8_t @-> returning int32_t)
+    ;;
+    let write_byte = foreign "i2c_smbus_write_byte"
+      ~from:i2c_dev
+      (fd_t @-> uint8_t @-> returning int32_t)
+    ;;
+    let write_byte_data = foreign "i2c_smbus_write_byte_data"
+      ~from:i2c_dev
+      (fd_t @-> uint8_t @-> uint8_t @-> returning int32_t)
+    ;;
+    let write_block_data = foreign "i2c_smbus_write_block_data"
+      ~from:i2c_dev
+      (fd_t @-> uint8_t @-> uint8_t @-> ptr uint8_t @-> returning int32_t)
+    ;;
+
+    let check32 s r =
+      if Ops32.(r < 0l) then begin
+        Printf.eprintf "%s command failed: %ld\n" s r;
+        failwith "exiting"
+      end;
+      Int32.to_int r
+    ;;
+
+    let read_byte () =
+      read_byte !fd |> check32 "read_byte"
+    ;;
+
+    let read_byte_data addr =
+      read_byte_data !fd (UInt8.of_int addr) |> check32 "read_byte_data"
+    ;;
+
+    let write_byte b =
+      write_byte !fd (UInt8.of_int b) |> check32 "write_byte" |> ignore
+    ;;
+
+    let write_byte_data cmd value =
+      write_byte_data !fd (UInt8.of_int cmd) (UInt8.of_int value)
+      |> check32 "write_byte_data" |> ignore
+    ;;
+
+    let write_block_data cmd data =
+      let cmd = UInt8.of_int cmd in
+      let len = UInt8.of_int (List.length data) in
+      let data = List.map UInt8.of_int data in
+      let arr = Array.of_list uint8_t data in
+      let ptr = Array.start arr in
+      write_block_data !fd cmd len ptr |> check32 "write_block_data" |> ignore
+    ;;
+
+  end
+
+  module OcamlInterface = struct
+
+    (** Let's try replacing some of these with raw i2c commands *)
+    let read_byte () =
+      let s = " " in
+      if Unix.read !fd s 0 1 <> 1 then
+        failwith "Error in read_byte";
+      Char.code s.[0]
+    ;;
+
+    let write_byte b =
+      let s = " " in
+      s.[0] <- Char.chr b;
+      if Unix.write !fd s 0 1 <> 1 then
+        failwith "Error in write_byte";
+      ()
+    ;;
+
+    let write_byte_data cmd value =
+      let s = String.make 2 ' ' in
+      s.[0] <- Char.chr cmd;
+      s.[1] <- Char.chr value;
+      if Unix.write !fd s 0 2 <> 2 then
+        failwith "Error in write_byte_data";
+      ()
+    ;;
+
+    let write_block_data cmd data =
+      let l = List.length data + 1 in
+      let s = String.make l ' ' in
+      s.[0] <- Char.chr cmd;
+      List.iteri (fun i value ->
+        s.[i+1] <- Char.chr value
+      ) data;
+      if Unix.write !fd s 0 l <> l then
+        failwith "Error in write_block_data";
+      ()
+    ;;
+
+  end
+
+  (** As of now, there's an issue with the C bindings. I'm running into either
+   * "Illegal Instruction" or "Segmentation Fault", so let's use the OCaml code
+   * for the time being. *)
+  include OcamlInterface
+
 end
 
 (** A module for driving Adafruit's LCD panel over i2c. *)
