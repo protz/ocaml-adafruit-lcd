@@ -509,29 +509,16 @@ module LCD = struct
     Smbus.write_byte_data mcp23017_gpiob cmd2;
   ;;
 
+
+  let button_read () = 
+    Smbus.CInterface.read_byte_data mcp23017_gpioa
+ 
+  let button_pressed b =
+    (button_read () lsr b) land 1 <> 0
+      
+  let buttons () =
+    button_read ()  land 0b11111 
+      
+    
 end
-
-(* -------------------------------------------------------------------------- *)
-
-(* Sample code *)
-
-let _ =
-  let busnum = if Pi.get_revision () = 2 then 1 else 0 in
-  LCD.init ~busnum ();
-
-  LCD.backlight LCD.violet;
-  LCD.clear ();
-  LCD.message "Hello\nfrom OCaml";
-  Lib.usleep 1.;
-  for i = 0 to 1000 do
-    LCD.backlight LCD.violet;
-    let f = float_of_int i /. 1000. in
-    let t = 0.01 in
-    Lib.usleep (t *. f);
-    LCD.backlight LCD.yellow;
-    Lib.usleep (t *. (1. -. f));
-    LCD.clear ();
-    LCD.write_byte LCD.lcd_returnhome;
-    LCD.message ("Dimming\n" ^ string_of_int i);
-  done
 
