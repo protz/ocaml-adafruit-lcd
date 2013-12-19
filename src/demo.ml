@@ -60,6 +60,10 @@ let _ =
   LCD.cursor true;
   LCD.backlight LCD.yellow;
 
+  LCD.message "0123456789\n0123456789";
+  LCD.move_cursor_abs (5, 1);
+  if true then exit 0;
+
   for i = 0 to 100 do
     LCD.backlight LCD.violet;
     let f = float_of_int i /. 100. in

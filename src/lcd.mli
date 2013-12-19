@@ -72,5 +72,6 @@ module LCD : sig
   val text_direction : text_direction -> unit
   val autoscroll : bool -> unit
   val move_cursor : move_direction -> unit
+  val move_cursor_abs : int * int -> unit
   val move_display : move_direction -> unit
 end

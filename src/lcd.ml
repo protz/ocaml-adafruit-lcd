@@ -520,6 +520,12 @@ module LCD = struct
         set_displayshift (lcd_cursormove lor lcd_moveright)
   ;;
 
+  let move_cursor_abs (x, y) =
+    if x < 0 || x > 16 || y < 0 || y > 1 then
+      failwith "Coordinates out of range";
+    write_byte (lcd_setddramaddr lor (x + y * 0x40))
+  ;;
+
   let move_display dir =
     match dir with
     | Left ->
