@@ -292,14 +292,12 @@ module LCD = struct
   type state = {
     mutable gpioa:  int;
     mutable gpiob:  int;
-    mutable displayshift:   int;
     mutable displaycontrol: int;
   }
 
   let state = {
     gpioa = 0;
     gpiob = 0;
-    displayshift = 0;
     displaycontrol = 0;
   }
 
@@ -468,53 +466,27 @@ module LCD = struct
     write_byte lcd_returnhome
   ;;
 
-  let set_displaycontrol () =
+  let switch_displaycontrol_bit bit on =
+    if on then
+      state.displaycontrol <- state.displaycontrol lor bit
+    else
+      state.displaycontrol <- state.displaycontrol land lnot bit;
     write_byte (lcd_displaycontrol lor state.displaycontrol)
   ;;
 
-  let set_displayshift () =
-    write_byte (lcd_cursorshift lor state.displayshift)
-  ;;
+  let display = switch_displaycontrol_bit lcd_displayon;;
+
+  let cursor = switch_displaycontrol_bit lcd_cursoron;;
+
+  let blink = switch_displaycontrol_bit lcd_blinkon;;
 
   let set_entrymode mode =
     write_byte (lcd_entrymodeset lor mode)
   ;;
 
-  let set_bit x y =
-    x lor y
-  ;;
+  type text_direction = LeftToRight | RightToLeft
 
-  let clear_bit x y =
-    x land lnot y
-  ;;
-
-  let display on =
-    if on then
-      state.displaycontrol <- set_bit state.displaycontrol lcd_displayon
-    else
-      state.displaycontrol <- clear_bit state.displaycontrol lcd_displayon;
-    set_displaycontrol ()
-  ;;
-
-  let cursor on =
-    if on then
-      state.displaycontrol <- set_bit state.displaycontrol lcd_cursoron
-    else
-      state.displaycontrol <- clear_bit state.displaycontrol lcd_cursoron;
-    set_displaycontrol ()
-  ;;
-
-  let blink on =
-    if on then
-      state.displaycontrol <- set_bit state.displaycontrol lcd_blinkon
-    else
-      state.displaycontrol <- clear_bit state.displaycontrol lcd_blinkon;
-    set_displaycontrol ()
-  ;;
-
-  type direction = LeftToRight | RightToLeft
-
-  let direction dir =
+  let text_direction dir =
     let mode =
       match dir with
       | LeftToRight -> lcd_lefttoright
@@ -534,6 +506,27 @@ module LCD = struct
       set_entrymode (lcd_lefttoright lor lcd_entryshiftdecrement);
   ;;
 
+  let set_displayshift mode =
+    write_byte (lcd_cursorshift lor mode)
+  ;;
+
+  type move_direction = Left | Right
+
+  let move_cursor dir =
+    match dir with
+    | Left ->
+        set_displayshift (lcd_cursormove lor lcd_moveleft)
+    | Right ->
+        set_displayshift (lcd_cursormove lor lcd_moveright)
+  ;;
+
+  let move_display dir =
+    match dir with
+    | Left ->
+        set_displayshift (lcd_displaymove lor lcd_moveleft)
+    | Right ->
+        set_displayshift (lcd_displaymove lor lcd_moveright)
+  ;;
 
   (* Initialize the port expander and the lcd. *)
   let init ?(address=0x20) ?(busnum=1) () =
@@ -586,23 +579,17 @@ module LCD = struct
      * operations must be broken down into single-byte calls. *)
     Smbus.write_byte_data mcp23017_iocon_bank0 0b10100000;
 
-    state.displayshift   <- lcd_cursormove lor lcd_moveright;
-    state.displaycontrol <- lcd_displayon;
-
     write_byte 0x33; (* Init *)
     write_byte 0x32; (* Init *)
     write_byte 0x28; (* 2 line 5x8 matrix *)
     clear ();
-    set_displayshift ();
     set_entrymode (lcd_lefttoright);
-    set_displaycontrol ();
+    display true;
     home ();
 
   ;;
 
-  ignore (lcd_functionset, lcd_setcgramaddr, lcd_setddramaddr, lcd_displaymove,
-    lcd_moveleft);
-
+  ignore (lcd_setcgramaddr, lcd_setddramaddr, lcd_functionset);
 
 end
 
