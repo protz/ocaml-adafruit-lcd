@@ -421,7 +421,7 @@ module LCD = struct
         (* Batch sending: we can send at most 32 bytes over i2c. *)
         assert (List.length !data <= 8);
         if List.length !data = 8 then
-          flush();
+          flush ();
       end done;
       flush ();
     )
@@ -447,7 +447,8 @@ module LCD = struct
      * sets up all the input pins, pull-ups, etc. for the Pi Plate. *)
     Smbus.write_block_data 0
       [ 0b00111111;      (* IODIRA    R+G LEDs=outputs, buttons=inputs *)
-        iodirb_write_d7; (* IODIRB    value doesn't matter, since poll_next initially set to true *)
+        iodirb_write_d7; (* IODIRB    value doesn't matter, since poll_next
+                                      initially set to true *)
         0b00111111;      (* IPOLA     Invert polarity on button inputs *)
         0b00000000;      (* IPOLB *)
         0b00000000;      (* GPINTENA  Disable interrupt-on-change *)
