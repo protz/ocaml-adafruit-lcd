@@ -3,9 +3,9 @@
 (* Sample code *)
 open Lcd
 
-let colors = 
-  [|"Red", LCD.red; 
-   "Yellow", LCD.yellow; 
+let colors =
+  [|"Red", LCD.red;
+   "Yellow", LCD.yellow;
    "Green", LCD.green;
    "Teal", LCD.teal;
    "Blue", LCD.blue;
@@ -14,24 +14,24 @@ let colors =
    "On", LCD.on
   |]
 
-let buttons = 
+let buttons =
   [|LCD.select, "Select", LCD.on;
-    LCD.left, "Left", LCD.green; 
+    LCD.left, "Left", LCD.green;
     LCD.up, "Up", LCD.blue;
     LCD.down, "Down", LCD.violet;
     LCD.right, "Right", LCD.red
   |]
 
 let steps =
-  let u = ref 0 in 
-  let n = ref 0 in 
-  fun () -> 
-    if ! u > 1000 then 
-      begin 
-	incr n; 
+  let u = ref 0 in
+  let n = ref 0 in
+  fun () ->
+    if ! u > 1000 then
+      begin
+	incr n;
 	u := 0;
 	LCD.clear ();
-	LCD.message (Printf.sprintf "steps %i" !n); 
+	LCD.message (Printf.sprintf "steps %i" !n);
       end
     else incr u
 
@@ -52,7 +52,7 @@ let rec main prev i  =
       main prev (i+1)
   else
     main prev 0
-  
+
 let _ =
   let busnum = if Pi.get_revision () = 2 then 1 else 0 in
   LCD.init ~busnum ();
@@ -64,7 +64,7 @@ let _ =
 
   for i = 0 to 100 do
     LCD.backlight LCD.violet;
-    let f = float_of_int i /. 1000. in
+    let f = float_of_int i /. 100. in
     let t = 0.01 in
     Lib.usleep (t *. f);
     LCD.backlight LCD.yellow;
@@ -73,9 +73,9 @@ let _ =
     LCD.write_byte LCD.lcd_returnhome;
     LCD.message ("Dimming\n" ^ string_of_int i);
   done;
-  
+
   main (-1) 0
-  
+
 (*
   for i = 0 to 1000 do
     LCD.backlight LCD.violet;

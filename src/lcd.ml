@@ -503,22 +503,24 @@ module LCD = struct
   ;;
 
   let backlight c =
-    let cmd1 = ((lnot c land 0b011) lsl 6) in
+    let cmd1 = ((lnot c land 0b00000011) lsl 6) in
     Smbus.write_byte_data mcp23017_gpioa cmd1;
-    let cmd2 = ((lnot c land 0b100) lsr 2) in
+    let cmd2 = ((lnot c land 0b00000100) lsr 2) in
     Smbus.write_byte_data mcp23017_gpiob cmd2;
   ;;
 
 
-  let button_read () = 
+  let button_read () =
     Smbus.CInterface.read_byte_data mcp23017_gpioa
- 
+  ;;
+
   let button_pressed b =
     (button_read () lsr b) land 1 <> 0
-      
+  ;;
+
   let buttons () =
-    button_read ()  land 0b11111 
-      
-    
+    button_read () land 0b00011111
+  ;;
+
 end
 
