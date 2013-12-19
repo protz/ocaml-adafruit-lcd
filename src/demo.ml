@@ -58,19 +58,7 @@ let _ =
   LCD.init ~busnum ();
   LCD.blink true;
   LCD.cursor true;
-
   LCD.backlight LCD.yellow;
-  LCD.clear ();
-  LCD.message "0123456789\n0123456789";
-  LCD.move_cursor LCD.Right;
-  LCD.move_cursor LCD.Right;
-  LCD.move_cursor LCD.Right;
-  LCD.move_cursor LCD.Right;
-  Lib.usleep 3.;
-  LCD.move_display LCD.Right;
-  Lib.usleep 3.;
-  LCD.move_display LCD.Left;
-  if true then exit 0;
 
   for i = 0 to 100 do
     LCD.backlight LCD.violet;

@@ -583,7 +583,8 @@ module LCD = struct
     write_byte 0x32; (* Init *)
     write_byte 0x28; (* 2 line 5x8 matrix *)
     clear ();
-    set_entrymode (lcd_lefttoright);
+    set_entrymode lcd_lefttoright;
+    autoscroll false;
     display true;
     home ();
 
