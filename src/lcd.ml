@@ -265,7 +265,7 @@ module LCD = struct
   let lcd_entrymodeset        = 0x04
   let lcd_displaycontrol      = 0x08
   let lcd_cursorshift         = 0x10
-  let lcd_functionset         = 0x20
+  (* let lcd_functionset         = 0x20 *)
   let lcd_setcgramaddr        = 0x40
   let lcd_setddramaddr        = 0x80
 
@@ -534,6 +534,16 @@ module LCD = struct
         set_displayshift (lcd_displaymove lor lcd_moveright)
   ;;
 
+  let new_char loc bitmap =
+    if List.length bitmap <> 8 then
+      failwith "Bitmaps are made up of five bytes";
+    let str = String.make 8 ' ' in
+    List.iteri (fun i b -> str.[i] <- Char.chr b) bitmap;
+    write_byte (lcd_setcgramaddr lor (loc land 0b00000111) lsl 3);
+    write_string str;
+    write_byte lcd_setddramaddr;
+  ;;
+
   (* Initialize the port expander and the lcd. *)
   let init ?(address=0x20) ?(busnum=1) () =
     Smbus.init ~address ~busnum;
@@ -595,8 +605,6 @@ module LCD = struct
     home ();
 
   ;;
-
-  ignore (lcd_setcgramaddr, lcd_setddramaddr, lcd_functionset);
 
 end
 

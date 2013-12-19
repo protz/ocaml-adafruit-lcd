@@ -74,4 +74,5 @@ module LCD : sig
   val move_cursor : move_direction -> unit
   val move_cursor_abs : int * int -> unit
   val move_display : move_direction -> unit
+  val new_char : int -> int list -> unit
 end

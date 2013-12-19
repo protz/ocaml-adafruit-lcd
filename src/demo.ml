@@ -53,6 +53,107 @@ let rec main prev i  =
   else
     main prev 0
 
+let draw_caml_logo () =
+  let chars = [
+    [
+      0b00000;
+      0b00111;
+      0b01111;
+      0b00011;
+      0b00001;
+      0b00001;
+      0b00000;
+      0b00000;
+    ];
+
+    [
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00011;
+      0b11111;
+      0b11111;
+      0b11111;
+    ];
+
+    [
+      0b00000;
+      0b00000;
+      0b00000;
+      0b11110;
+      0b11111;
+      0b11111;
+      0b11111;
+      0b11111;
+    ];
+
+    [
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b10000;
+      0b11000;
+      0b10000;
+    ];
+
+    [
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+    ];
+
+    [
+      0b00011;
+      0b00011;
+      0b00011;
+      0b00010;
+      0b00010;
+      0b00011;
+      0b00110;
+      0b00000;
+    ];
+
+    [
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00000;
+      0b00001;
+      0b00000;
+      0b00000;
+    ];
+
+    [
+      0b10000;
+      0b10000;
+      0b11000;
+      0b10000;
+      0b10000;
+      0b10000;
+      0b00000;
+      0b00000;
+    ]
+  ] in
+  List.iteri (fun i c -> LCD.new_char i c) chars;
+  LCD.message "\000\001\002\003";
+  LCD.move_cursor_abs (0, 1);
+  LCD.message "\004\005\006\007";
+  LCD.move_cursor_abs (6, 0);
+  LCD.message "OCaml";
+  LCD.move_cursor_abs (8, 1);
+  LCD.message "FTW";
+;;
+
+
 let _ =
   let busnum = if Pi.get_revision () = 2 then 1 else 0 in
   LCD.init ~busnum ();
@@ -60,8 +161,7 @@ let _ =
   LCD.cursor true;
   LCD.backlight LCD.yellow;
 
-  LCD.message "0123456789\n0123456789";
-  LCD.move_cursor_abs (5, 1);
+  draw_caml_logo ();
   if true then exit 0;
 
   for i = 0 to 100 do
