@@ -61,8 +61,8 @@ let _ =
 
   LCD.backlight LCD.yellow;
   LCD.clear ();
-  LCD.message "Hello\nfrom OCaml";
-  Lib.usleep 1.;
+  LCD.message "This line is too long";
+  if true then exit 0;
 
   for i = 0 to 100 do
     LCD.backlight LCD.violet;

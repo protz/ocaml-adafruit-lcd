@@ -275,10 +275,10 @@ module LCD = struct
   let lcd_blinkon             = 0x01
 
   (* Flags for display entry mode *)
-  let lcd_entryright          = 0x00
-  let lcd_entryleft           = 0x02
-  let lcd_entryshiftincrement = 0x01
-  let lcd_entryshiftdecrement = 0x00
+  let lcd_lefttoright           = 0x02
+  let lcd_righttoleft           = 0x00
+  let lcd_entryshiftincrement   = 0x01
+  let lcd_entryshiftdecrement   = 0x00
 
   (* Flags for display/cursor shift *)
   let lcd_displaymove = 0x08
@@ -293,7 +293,6 @@ module LCD = struct
     mutable gpioa:  int;
     mutable gpiob:  int;
     mutable displayshift:   int;
-    mutable displaymode:    int;
     mutable displaycontrol: int;
   }
 
@@ -301,7 +300,6 @@ module LCD = struct
     gpioa = 0;
     gpiob = 0;
     displayshift = 0;
-    displaymode = 0;
     displaycontrol = 0;
   }
 
@@ -470,32 +468,70 @@ module LCD = struct
     write_byte lcd_returnhome
   ;;
 
-  let displaycontrol () =
+  let set_displaycontrol () =
     write_byte (lcd_displaycontrol lor state.displaycontrol)
+  ;;
+
+  let set_displayshift () =
+    write_byte (lcd_cursorshift lor state.displayshift)
+  ;;
+
+  let set_entrymode mode =
+    write_byte (lcd_entrymodeset lor mode)
+  ;;
+
+  let set_bit x y =
+    x lor y
+  ;;
+
+  let clear_bit x y =
+    x land lnot y
   ;;
 
   let display on =
     if on then
-      state.displaycontrol <- state.displaycontrol lor lcd_displayon
+      state.displaycontrol <- set_bit state.displaycontrol lcd_displayon
     else
-      state.displaycontrol <- state.displaycontrol land (lnot lcd_displayon);
-    displaycontrol ()
+      state.displaycontrol <- clear_bit state.displaycontrol lcd_displayon;
+    set_displaycontrol ()
   ;;
 
   let cursor on =
     if on then
-      state.displaycontrol <- state.displaycontrol lor lcd_cursoron
+      state.displaycontrol <- set_bit state.displaycontrol lcd_cursoron
     else
-      state.displaycontrol <- state.displaycontrol land (lnot lcd_cursoron);
-    displaycontrol ()
+      state.displaycontrol <- clear_bit state.displaycontrol lcd_cursoron;
+    set_displaycontrol ()
   ;;
 
   let blink on =
     if on then
-      state.displaycontrol <- state.displaycontrol lor lcd_blinkon
+      state.displaycontrol <- set_bit state.displaycontrol lcd_blinkon
     else
-      state.displaycontrol <- state.displaycontrol land (lnot lcd_blinkon);
-    displaycontrol ()
+      state.displaycontrol <- clear_bit state.displaycontrol lcd_blinkon;
+    set_displaycontrol ()
+  ;;
+
+  type direction = LeftToRight | RightToLeft
+
+  let direction dir =
+    let mode =
+      match dir with
+      | LeftToRight -> lcd_lefttoright
+      | RightToLeft -> lcd_righttoleft
+    in
+    set_entrymode mode
+  ;;
+
+  (* There's a third combination (lcd_righttoleft lor lcd_entryshiftincrement)
+   * that makes no sense to me. The only autoscroll we enable is one where, when
+   * reaching past the end of the screen, any subsequent write shifts the
+   * display to the left. *)
+  let autoscroll b =
+    if b then
+      set_entrymode (lcd_lefttoright lor lcd_entryshiftincrement)
+    else
+      set_entrymode (lcd_lefttoright lor lcd_entryshiftdecrement);
   ;;
 
 
@@ -551,22 +587,21 @@ module LCD = struct
     Smbus.write_byte_data mcp23017_iocon_bank0 0b10100000;
 
     state.displayshift   <- lcd_cursormove lor lcd_moveright;
-    state.displaymode    <- lcd_entryleft lor lcd_entryshiftdecrement;
     state.displaycontrol <- lcd_displayon;
 
     write_byte 0x33; (* Init *)
     write_byte 0x32; (* Init *)
     write_byte 0x28; (* 2 line 5x8 matrix *)
     clear ();
-    write_byte (lcd_cursorshift lor state.displayshift);
-    write_byte (lcd_entrymodeset lor state.displaymode);
-    displaycontrol ();
+    set_displayshift ();
+    set_entrymode (lcd_lefttoright);
+    set_displaycontrol ();
     home ();
+
   ;;
 
-  ignore (lcd_functionset, lcd_setcgramaddr, lcd_setddramaddr, lcd_entrymodeset,
-  lcd_entryright, lcd_entryleft, lcd_entryshiftincrement,
-  lcd_entryshiftdecrement, lcd_displaymove, lcd_moveleft);
+  ignore (lcd_functionset, lcd_setcgramaddr, lcd_setddramaddr, lcd_displaymove,
+    lcd_moveleft);
 
 
 end

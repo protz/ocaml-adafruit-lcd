@@ -56,6 +56,8 @@ module LCD : sig
   val white : int
   val on : int
 
+  type direction = LeftToRight | RightToLeft
+
   (* High-level functions *)
   val init : ?address:int -> ?busnum:int -> unit -> unit
   val clear : unit -> unit
@@ -66,4 +68,6 @@ module LCD : sig
   val display : bool -> unit
   val cursor : bool -> unit
   val blink : bool -> unit
+  val direction : direction -> unit
+  val autoscroll : bool -> unit
 end
