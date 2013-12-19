@@ -56,6 +56,8 @@ let rec main prev i  =
 let _ =
   let busnum = if Pi.get_revision () = 2 then 1 else 0 in
   LCD.init ~busnum ();
+  LCD.blink false;
+  LCD.cursor false;
 
   LCD.backlight LCD.yellow;
   LCD.clear ();
@@ -70,12 +72,12 @@ let _ =
     LCD.backlight LCD.yellow;
     Lib.usleep (t *. (1. -. f));
     LCD.clear ();
-    LCD.write_byte LCD.lcd_returnhome;
+    LCD.home ();
     LCD.message ("Dimming\n" ^ string_of_int i);
   done;
 
   LCD.backlight LCD.violet;
-  LCD.write_byte LCD.lcd_returnhome;
+  LCD.home ();
   LCD.message "Press buttons";
 
   main (-1) 0

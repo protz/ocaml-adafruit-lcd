@@ -1,8 +1,25 @@
-let array_get = Array.get
+(*****************************************************************************)
+(*  OCaml library for the Adafruit RGB LCD                                   *)
+(*  Copyright (C) 2013, Thomas Braibant and Jonathan Protzenko               *)
+(*  Original code by Adafruit Industries                                     *)
+(*                                                                           *)
+(*  This program is free software: you can redistribute it and/or modify     *)
+(*  it under the terms of the GNU General Public License as published by     *)
+(*  the Free Software Foundation, either version 3 of the License, or        *)
+(*  (at your option) any later version.                                      *)
+(*                                                                           *)
+(*  This program is distributed in the hope that it will be useful,          *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of           *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            *)
+(*  GNU General Public License for more details.                             *)
+(*                                                                           *)
+(*  You should have received a copy of the GNU General Public License        *)
+(*  along with this program.  If not, see <http://www.gnu.org/licenses/>.    *)
+(*                                                                           *)
+(*****************************************************************************)
 
 open Ctypes
 open Foreign
-open Unsigned
 
 (** The usual missing functions from OCaml's standard library *)
 module Lib = struct
@@ -58,19 +75,6 @@ module Pi = struct
   ;;
 end
 
-(** A convenience module for performing operations on 32-bit integers. *)
-module Ops32 = struct
-  let ( + ) = Int32.add
-  let ( - ) = Int32.sub
-  let ( * ) = Int32.mul
-  let ( / ) = Int32.div
-  let ( < ) x y = Int32.compare x y < 0
-  let ( > ) x y = Int32.compare x y > 0
-  let ( <= ) x y = Int32.compare x y <= 0
-  let ( >= ) x y = Int32.compare x y >= 0
-  let ( = ) x y = Int32.compare x y = 0
-end
-
 (** An interface to the smbus protocol, via Ctypes and the "i2c-dev.h"
  * functions. *)
 module Smbus = struct
@@ -109,7 +113,7 @@ module Smbus = struct
       failwith "Error performing the ioctl call"
   ;;
 
-  module CInterface = struct
+  (* module CInterface = struct
 
     (** The C shared library that contains the various i2c_smbus functions. *)
     let i2c_dev = Dl.dlopen
@@ -139,7 +143,7 @@ module Smbus = struct
     ;;
 
     let check32 s r =
-      if Ops32.(r < 0l) then begin
+      if Int32.compare r 0l < 0 then begin
         Printf.eprintf "%s command failed: %ld\n" s r;
         failwith "exiting"
       end;
@@ -172,7 +176,7 @@ module Smbus = struct
       write_block_data !fd cmd len ptr |> check32 "write_block_data" |> ignore
     ;;
 
-  end
+  end *)
 
   module OcamlInterface = struct
 
@@ -267,11 +271,8 @@ module LCD = struct
 
   (* Flags for display on/off control *)
   let lcd_displayon           = 0x04
-  let lcd_displayoff          = 0x00
   let lcd_cursoron            = 0x02
-  let lcd_cursoroff           = 0x00
   let lcd_blinkon             = 0x01
-  let lcd_blinkoff            = 0x00
 
   (* Flags for display entry mode *)
   let lcd_entryright          = 0x00
@@ -306,22 +307,28 @@ module LCD = struct
 
   (* The LCD data pins (D4-D7) connect to MCP pins 12-9 (gpiob4-1), in
    * that order.  Because this sequence is 'reversed,' a direct shift
-   * won't work.  This table remaps 4-bit data values to MCP gpiob
+   * won't work.  These functions remap 4-bit data values to MCP gpiob
    * outputs, incorporating both the reverse and shift. *)
-  let flip = [|
-    0b00000000; 0b00010000; 0b00001000; 0b00011000;
-    0b00000100; 0b00010100; 0b00001100; 0b00011100;
-    0b00000010; 0b00010010; 0b00001010; 0b00011010;
-    0b00000110; 0b00010110; 0b00001110; 0b00011110
-  |]
+
+  let flip_rev_lo x =
+    (x land 0b00000001) lsl 4 lor (* IR0 -> DB4 *)
+    (x land 0b00000010) lsl 2 lor (* IR1 -> DB5 *)
+    (x land 0b00000100) lsl 0 lor (* IR2 -> DB6 *)
+    (x land 0b00001000) lsr 2     (* IR4 -> DB7 *)
+  ;;
+
+  let flip_rev_hi x =
+    flip_rev_lo (x lsr 4)
+  ;;
 
   (* Low-level 4-bit interface for LCD output.  This doesn't actually
    * write data, just returns a byte array of the gpiob state over time.
    * Can concatenate the output of multiple calls (up to 8) for more
    * efficient batch write. *)
   let out4 bitmask value =
-    let hi = bitmask lor array_get flip (value lsr 4) in
-    let lo = bitmask lor array_get flip (value land 0x0F) in
+    (* See page 22 of https://www.sparkfun.com/datasheets/LCD/HD44780.pdf. *)
+    let hi = bitmask lor flip_rev_hi value in
+    let lo = bitmask lor flip_rev_lo value in
     [hi lor 0b00100000; hi; lo lor 0b00100000; lo]
   ;;
 
@@ -342,7 +349,8 @@ module LCD = struct
   ;;
 
   let mk_bitmask char_mode =
-    let bitmask = state.gpiob land 0b00000001 in (* Mask out gpiob LCD control bits *)
+    (* Mask out gpiob LCD control bits, just keep the current BLUE value *)
+    let bitmask = state.gpiob land 0b00000001 in
     if char_mode then
       bitmask lor 0b10000000 (* Set data bit if not a command *)
     else
@@ -427,6 +435,70 @@ module LCD = struct
     )
   ;;
 
+  (* Some high-level functions *)
+
+  let clear () =
+    write_byte lcd_cleardisplay
+  ;;
+
+  let message s =
+    let lines = Lib.split s '\n' in
+    List.iteri (fun i line ->
+      if i > 2 then
+        Printf.eprintf "Message too long to fit on the LCD: dropping %s" line;
+      if i = 1 then
+        write_byte 0xc0; (* set ddram address to second line *)
+      write_string line
+    ) lines
+  ;;
+
+  let backlight c =
+    let cmd1 = ((lnot c land 0b00000011) lsl 6) in
+    Smbus.write_byte_data mcp23017_gpioa cmd1;
+    let cmd2 = ((lnot c land 0b00000100) lsr 2) in
+    Smbus.write_byte_data mcp23017_gpiob cmd2;
+  ;;
+
+  let button_pressed b =
+    let read_buttons () =
+      (Smbus.read_byte_data mcp23017_gpioa) land 0b00011111
+    in
+    (read_buttons ()) land (1 lsl b) <> 0
+  ;;
+
+  let home () =
+    write_byte lcd_returnhome
+  ;;
+
+  let displaycontrol () =
+    Smbus.write_byte (lcd_displaycontrol lor state.displaycontrol)
+  ;;
+
+  let display on =
+    if on then
+      state.displaycontrol <- state.displaycontrol lor lcd_displayon
+    else
+      state.displaycontrol <- state.displaycontrol land (lnot lcd_displayon);
+    displaycontrol ()
+  ;;
+
+  let cursor on =
+    if on then
+      state.displaycontrol <- state.displaycontrol lor lcd_cursoron
+    else
+      state.displaycontrol <- state.displaycontrol land (lnot lcd_cursoron);
+    displaycontrol ()
+  ;;
+
+  let blink on =
+    if on then
+      state.displaycontrol <- state.displaycontrol lor lcd_blinkon
+    else
+      state.displaycontrol <- state.displaycontrol land (lnot lcd_blinkon);
+    displaycontrol ()
+  ;;
+
+
   (* Initialize the port expander and the lcd. *)
   let init ?(address=0x20) ?(busnum=1) () =
     Smbus.init ~address ~busnum;
@@ -480,49 +552,22 @@ module LCD = struct
 
     state.displayshift   <- lcd_cursormove lor lcd_moveright;
     state.displaymode    <- lcd_entryleft lor lcd_entryshiftdecrement;
-    state.displaycontrol <- lcd_displayon lor lcd_cursoroff lor lcd_blinkoff;
+    state.displaycontrol <- lcd_displayon;
 
     write_byte 0x33; (* Init *)
     write_byte 0x32; (* Init *)
     write_byte 0x28; (* 2 line 5x8 matrix *)
-    write_byte lcd_cleardisplay;
+    clear ();
     write_byte (lcd_cursorshift lor state.displayshift);
     write_byte (lcd_entrymodeset lor state.displaymode);
-    write_byte (lcd_displaycontrol lor state.displaycontrol);
-    write_byte lcd_returnhome;
-
+    displaycontrol ();
+    home ();
   ;;
 
-  let clear () =
-    write_byte lcd_cleardisplay
-  ;;
+  ignore (lcd_functionset, lcd_setcgramaddr, lcd_setddramaddr, lcd_entrymodeset,
+  lcd_entryright, lcd_entryleft, lcd_entryshiftincrement,
+  lcd_entryshiftdecrement, lcd_displaymove, lcd_moveleft);
 
-  let message s =
-    let lines = Lib.split s '\n' in
-    List.iteri (fun i line ->
-      if i > 2 then
-        failwith "Message too long to fit on the LCD";
-      if i = 1 then
-        write_byte 0xc0; (* set ddram address to second line *)
-      write_string line
-    ) lines
-  ;;
-
-  let backlight c =
-    let cmd1 = ((lnot c land 0b00000011) lsl 6) in
-    Smbus.write_byte_data mcp23017_gpioa cmd1;
-    let cmd2 = ((lnot c land 0b00000100) lsr 2) in
-    Smbus.write_byte_data mcp23017_gpiob cmd2;
-  ;;
-
-
-  let buttons () =
-    (Smbus.read_byte_data mcp23017_gpioa) land 0b00011111
-  ;;
-
-  let button_pressed b =
-    (buttons ()) land (1 lsl b) <> 0
-  ;;
 
 end
 
