@@ -213,6 +213,11 @@ module Smbus = struct
       ()
     ;;
 
+    let read_byte_data addr =
+      write_byte addr;
+      read_byte ()
+    ;;
+
   end
 
   (** As of now, there's an issue with the C bindings. I'm running into either
@@ -510,16 +515,12 @@ module LCD = struct
   ;;
 
 
-  let button_read () =
-    Smbus.CInterface.read_byte_data mcp23017_gpioa
+  let buttons () =
+    (Smbus.read_byte_data mcp23017_gpioa) land 0b00011111
   ;;
 
   let button_pressed b =
-    (button_read () lsr b) land 1 <> 0
-  ;;
-
-  let buttons () =
-    button_read () land 0b00011111
+    (buttons ()) land (1 lsl b) <> 0
   ;;
 
 end

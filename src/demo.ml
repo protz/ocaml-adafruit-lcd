@@ -3,24 +3,24 @@
 (* Sample code *)
 open Lcd
 
-let colors =
-  [|"Red", LCD.red;
-   "Yellow", LCD.yellow;
-   "Green", LCD.green;
-   "Teal", LCD.teal;
-   "Blue", LCD.blue;
-   "Violet", LCD.violet;
-   "Off", LCD.off;
-   "On", LCD.on
-  |]
+let colors = [|
+  "Red", LCD.red;
+  "Yellow", LCD.yellow;
+  "Green", LCD.green;
+  "Teal", LCD.teal;
+  "Blue", LCD.blue;
+  "Violet", LCD.violet;
+  "Off", LCD.off;
+  "On", LCD.on
+|]
 
-let buttons =
-  [|LCD.select, "Select", LCD.on;
-    LCD.left, "Left", LCD.green;
-    LCD.up, "Up", LCD.blue;
-    LCD.down, "Down", LCD.violet;
-    LCD.right, "Right", LCD.red
-  |]
+let buttons = [|
+  LCD.select, "Select", LCD.on;
+  LCD.left, "Left", LCD.green;
+  LCD.up, "Up", LCD.blue;
+  LCD.down, "Down", LCD.violet;
+  LCD.right, "Right", LCD.red
+|]
 
 let steps =
   let u = ref 0 in
@@ -57,7 +57,7 @@ let _ =
   let busnum = if Pi.get_revision () = 2 then 1 else 0 in
   LCD.init ~busnum ();
 
-  LCD.backlight LCD.violet;
+  LCD.backlight LCD.yellow;
   LCD.clear ();
   LCD.message "Hello\nfrom OCaml";
   Lib.usleep 1.;
@@ -74,19 +74,8 @@ let _ =
     LCD.message ("Dimming\n" ^ string_of_int i);
   done;
 
+  LCD.backlight LCD.violet;
+  LCD.write_byte LCD.lcd_returnhome;
+  LCD.message "Press buttons";
+
   main (-1) 0
-
-(*
-  for i = 0 to 1000 do
-    LCD.backlight LCD.violet;
-    let f = float_of_int i /. 1000. in
-    let t = 0.01 in
-    Lib.usleep (t *. f);
-    LCD.backlight LCD.yellow;
-    Lib.usleep (t *. (1. -. f));
-    LCD.clear ();
-    LCD.write_byte LCD.lcd_returnhome;
-    LCD.message ("Dimming\n" ^ string_of_int i);
-  done
-
-*)
