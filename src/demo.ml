@@ -56,8 +56,8 @@ let rec main prev i  =
 let _ =
   let busnum = if Pi.get_revision () = 2 then 1 else 0 in
   LCD.init ~busnum ();
-  LCD.blink false;
-  LCD.cursor false;
+  LCD.blink true;
+  LCD.cursor true;
 
   LCD.backlight LCD.yellow;
   LCD.clear ();

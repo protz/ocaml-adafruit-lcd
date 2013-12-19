@@ -471,7 +471,7 @@ module LCD = struct
   ;;
 
   let displaycontrol () =
-    Smbus.write_byte (lcd_displaycontrol lor state.displaycontrol)
+    write_byte (lcd_displaycontrol lor state.displaycontrol)
   ;;
 
   let display on =
