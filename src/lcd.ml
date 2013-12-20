@@ -301,6 +301,16 @@ module LCD = struct
     displaycontrol = 0;
   }
 
+  let write_byte_gpioa b =
+    Smbus.write_byte_data mcp23017_gpioa b;
+    state.gpioa <- b
+  ;;
+
+  let write_byte_gpiob b =
+    Smbus.write_byte_data mcp23017_gpiob b;
+    state.gpiob <- b
+  ;;
+
   (* The LCD data pins (D4-D7) connect to MCP pins 12-9 (gpiob4-1), in
    * that order.  Because this sequence is 'reversed,' a direct shift
    * won't work.  These functions remap 4-bit data values to MCP gpiob
@@ -450,9 +460,9 @@ module LCD = struct
 
   let backlight c =
     let cmd1 = ((lnot c land 0b00000011) lsl 6) in
-    Smbus.write_byte_data mcp23017_gpioa cmd1;
+    write_byte_gpioa cmd1;
     let cmd2 = ((lnot c land 0b00000100) lsr 2) in
-    Smbus.write_byte_data mcp23017_gpiob cmd2;
+    write_byte_gpiob cmd2;
   ;;
 
   let button_pressed b =
