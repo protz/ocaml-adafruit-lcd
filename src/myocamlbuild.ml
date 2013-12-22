@@ -23,6 +23,6 @@ open Command;;
 dispatch begin function
 | After_rules ->
     flag ["ocaml"; "compile"; "my_warnings"]
-      (S[A "-w"; A "@1..3@8..12@14..21@23..43"]);
+      (S[A "-w"; A "@1..3@8..12@14..21@23..40@42..43"]);
 | _ -> ()
 end;;
