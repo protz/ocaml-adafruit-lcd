@@ -38,6 +38,13 @@ module Smbus : sig
 end
 
 module LCD : sig
+  (* Buttons *)
+  val select : int
+  val right : int
+  val down : int
+  val up : int
+  val left : int
+
   (* Colors *)
   val off : int
   val red : int
@@ -57,6 +64,8 @@ module LCD : sig
   val clear : unit -> unit
   val message : string -> unit
   val backlight : int -> unit
+  val button_pressed : int -> bool
+  val buttons_pressed : unit -> int
   val home : unit -> unit
   val display : bool -> unit
   val cursor : bool -> unit
@@ -67,15 +76,4 @@ module LCD : sig
   val move_cursor_abs : int * int -> unit
   val move_display : move_direction -> unit
   val new_char : int -> int list -> unit
-
-  type button = 
-    | Select
-    | Right
-    | Down
-    | Up
-    | Left
-
-  val buttons_pressed : unit -> button list
-  val button_pressed : unit -> button
-
 end

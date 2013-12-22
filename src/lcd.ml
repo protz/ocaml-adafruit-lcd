@@ -465,31 +465,12 @@ module LCD = struct
     write_byte_gpiob cmd2;
   ;;
 
-  type button = 
-    | Select
-    | Right
-    | Down
-    | Up
-    | Left
-
-  let button_constants = [
-    Select, select;
-    Right,  right;
-    Down,   down;
-    Up,     up;
-    Left,   left;
-  ]
-
   let buttons_pressed () =
-    let buttons = 
-      (Smbus.read_byte_data mcp23017_gpioa) land 0b00011111
-    in
-    List.filter (fun (_, constant) -> buttons land (1 lsl constant) <> 0) button_constants
-    |> List.split |> fst
+    (Smbus.read_byte_data mcp23017_gpioa) land 0b00011111
   ;;
 
-  let button_pressed () =
-    buttons_pressed () |> List.hd
+  let button_pressed b =
+    (buttons_pressed ()) land (1 lsl b) <> 0
   ;;
 
   let home () =
