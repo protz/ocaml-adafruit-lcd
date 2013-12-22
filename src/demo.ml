@@ -112,7 +112,8 @@ let gradient color1 color2 steps func =
     LCD.backlight color1;
     Lib.usleep (t *. (1. -. f));
     func i
-  done
+  done;
+  LCD.backlight color2;
 ;;
 
 type menu =
@@ -205,7 +206,6 @@ let menu (m: menu) =
             start_menu (List.rev (entry :: before))
         end
     | Left ->
-        Printf.eprintf "left\n%!";
         return ()
     | Right ->
         begin match snd entry with
