@@ -1,1 +1,1 @@
-true: my_warnings, strict_sequence, debug
+true: my_warnings, strict_sequence, package(ctypes.foreign), debug

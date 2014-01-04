@@ -1,16 +1,20 @@
-CFLAGS	= -Wall -Wextra -I../include -std=c99
-
 .PHONY: all
 
-all:
-	ocamlbuild -use-ocamlfind -classic-display -package ctypes.foreign demo.native
+TARGETS	:= demo.native lcd.cma lcd.cmxa lcd.cmxs
 
-lcd: lcd.c
-	gcc $(CFLAGS) -o $@ $<
+all:
+	ocamlbuild -use-ocamlfind -classic-display $(TARGETS)
 
 test: all
 	./demo.native
 
 clean:
-	rm -f demo demo.native
 	ocamlbuild -clean
+
+install:
+	ocamlfind install adafruit-lcd META \
+	  _build/lcd.a _build/lcd.cmi _build/lcd.cmx _build/lcd.cmxs \
+	  _build/lcd.cmxa _build/lcd.cma _build/lcd.mli \
+
+uninstall:
+	ocamlfind remove adafruit-lcd

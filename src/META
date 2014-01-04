@@ -1,0 +1,5 @@
+description = "An OCaml library for the Adafruit LCD with backpack"
+requires = "ctypes.foreign"
+
+archive(byte) = "lcd.cma"
+archive(native) = "lcd.cmxa"
