@@ -25,6 +25,7 @@ end
 module Lib : sig
   val usleep : float -> unit
   val print_binary : int -> string
+  val split: string -> char -> string list
 end
 
 
